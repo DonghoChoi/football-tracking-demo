@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tracking Play Explorer · NFL-style player tracking demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;700;900&family=Sometype+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* ---------------------------------------------------------------
+     THEME — broadcast-analytics dark chrome, silver/black palette.
+     All colors are CSS variables so students can re-skin in one place.
+  ---------------------------------------------------------------- */
+  :root{
+    --bg:#0a0c0f;
+    --panel:#13171c;
+    --panel-2:#1b2027;
+    --line:#2a313a;
+    --ink:#e9edf2;
+    --ink-dim:#8b95a3;
+    --silver:#c7ccd1;
+    --accent:#d4af37;       /* offense / highlight */
+    --off:#e8ebee;          /* offense dots */
+    --def:#c1453b;          /* defense dots */
+    --ball:#b5703a;
+    --los:#3da4ff;          /* line of scrimmage */
+    --first:#f2c14e;        /* line to gain */
+    --field:#10231a;        /* desaturated turf */
+    --field-2:#0c1b14;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    background:
+      radial-gradient(1200px 600px at 20% -10%, #182029 0%, transparent 60%),
+      var(--bg);
+    color:var(--ink);
+    font-family:"Sometype Mono", ui-monospace, monospace;
+    -webkit-font-smoothing:antialiased;
+    padding:24px;
+    display:flex;justify-content:center;
+  }
+  /* faint grain for atmosphere */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;opacity:.035;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap{width:100%;max-width:1180px;}
+
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px;}
+  .title{font-family:"Saira Condensed",sans-serif;}
+  .title .eyebrow{font-size:12px;letter-spacing:.32em;color:var(--accent);font-weight:700;text-transform:uppercase;}
+  .title h1{font-size:40px;line-height:.95;font-weight:900;letter-spacing:.01em;margin-top:4px;text-transform:uppercase;}
+  .title h1 span{color:var(--ink-dim);}
+  .situation{
+    text-align:right;font-family:"Saira Condensed",sans-serif;
+    border-left:2px solid var(--line);padding-left:16px;
+  }
+  .situation .down{font-size:30px;font-weight:900;line-height:1;}
+  .situation .meta{font-size:12px;color:var(--ink-dim);letter-spacing:.18em;text-transform:uppercase;margin-top:4px;}
+
+  .stage{
+    position:relative;background:var(--panel);border:1px solid var(--line);
+    border-radius:14px;overflow:hidden;box-shadow:0 24px 60px -30px #000;
+  }
+  canvas{display:block;width:100%;height:auto;}
+
+  /* floating insight card, lower-left of the field */
+  .insight{
+    position:absolute;left:18px;bottom:18px;
+    background:rgba(10,12,15,.78);backdrop-filter:blur(6px);
+    border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:8px;padding:12px 16px;min-width:230px;
+    transition:border-color .3s;
+  }
+  .insight .k{font-size:10px;letter-spacing:.24em;color:var(--ink-dim);text-transform:uppercase;}
+  .insight .v{font-family:"Saira Condensed",sans-serif;font-size:34px;font-weight:900;line-height:1;margin-top:2px;}
+  .insight .v small{font-size:15px;color:var(--ink-dim);font-weight:700;}
+  .insight .note{font-size:11px;color:var(--silver);margin-top:6px;max-width:240px;}
+  .insight.live{border-left-color:var(--first);}
+
+  /* control bar */
+  .controls{
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    background:var(--panel-2);border:1px solid var(--line);border-top:none;
+    border-radius:0 0 14px 14px;padding:14px 16px;margin-top:-1px;
+  }
+  button.play{
+    appearance:none;border:none;cursor:pointer;
+    width:46px;height:46px;border-radius:50%;
+    background:var(--accent);color:#1a1405;font-size:18px;
+    display:grid;place-items:center;transition:transform .1s, filter .2s;
+  }
+  button.play:hover{filter:brightness(1.1);}
+  button.play:active{transform:scale(.94);}
+  button.ghost{
+    appearance:none;border:1px solid var(--line);background:transparent;color:var(--ink-dim);
+    cursor:pointer;border-radius:7px;padding:8px 12px;font-family:inherit;font-size:12px;
+    letter-spacing:.08em;transition:color .2s,border-color .2s;
+  }
+  button.ghost:hover{color:var(--ink);border-color:var(--silver);}
+  .scrub{flex:1;min-width:160px;display:flex;align-items:center;gap:12px;}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:4px;
+    background:var(--line);outline:none;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;
+    background:var(--silver);border:2px solid var(--bg);box-shadow:0 0 0 1px var(--silver);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:16px;height:16px;border-radius:50%;background:var(--silver);border:2px solid var(--bg);
+  }
+  .clock{font-variant-numeric:tabular-nums;font-size:13px;color:var(--silver);min-width:74px;text-align:right;}
+  .speed{display:flex;gap:4px;}
+  .speed button{padding:6px 9px;font-size:11px;}
+  .speed button.on{color:#1a1405;background:var(--accent);border-color:var(--accent);}
+
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;font-size:11px;color:var(--ink-dim);letter-spacing:.06em;}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;vertical-align:-1px;}
+  footer{margin-top:20px;font-size:11px;color:var(--ink-dim);line-height:1.7;border-top:1px solid var(--line);padding-top:14px;}
+  footer b{color:var(--silver);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="title">
+      <div class="eyebrow">Player Tracking · 10&nbsp;Hz</div>
+      <h1>Tracking Play <span>Explorer</span></h1>
+    </div>
+    <div class="situation">
+      <div class="down" id="downText">3rd &amp; 7</div>
+      <div class="meta">Shotgun · Q2 · 4:18</div>
+    </div>
+  </header>
+
+  <div class="stage">
+    <canvas id="field"></canvas>
+    <div class="insight" id="insight">
+      <div class="k">Status</div>
+      <div class="v" id="insightValue">Pre-snap</div>
+      <div class="note" id="insightNote">Tracking 22 players + ball. Press play to run the rep.</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="play" id="playBtn" aria-label="Play">▶</button>
+    <button class="ghost" id="restartBtn">⟲ Restart</button>
+    <div class="scrub">
+      <input type="range" id="scrub" min="0" max="59" value="0" />
+      <div class="clock" id="clock">0.0s · f0</div>
+    </div>
+    <div class="speed" id="speed">
+      <button class="ghost" data-rate="0.5">0.5×</button>
+      <button class="ghost on" data-rate="1">1×</button>
+      <button class="ghost" data-rate="2">2×</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i style="background:var(--off)"></i>Offense</span>
+    <span><i style="background:var(--def)"></i>Defense</span>
+    <span><i style="background:var(--ball)"></i>Ball</span>
+    <span><i style="background:var(--accent)"></i>Target receiver</span>
+    <span><i style="background:var(--def);box-shadow:0 0 0 2px var(--first)"></i>Nearest defender</span>
+  </div>
+
+  <footer>
+    <b>What this is:</b> a self-contained demo of a player-tracking visualization — the kind of "transform tracking data into insight" artifact a Football Data Science role asks for.
+    The 10&nbsp;Hz coordinate streams below are synthetic but structured exactly like real tracking data (per-player x/y per frame).
+    <br /><b>Swap in real data:</b> replace the <code>PLAY</code> object with frames parsed from the NFL Big Data Bowl tracking CSVs (Kaggle). The render loop doesn't change.
+  </footer>
+</div>
+
+<script>
+/* =====================================================================
+   1. DATA MODEL  — mirrors real tracking data: each player has a stream
+      of [frame, x, y] waypoints on a 120 x 53.3 yard field. We linearly
+      interpolate between waypoints to get a position at any frame.
+      Swap this whole object for parsed Big Data Bowl rows and nothing
+      else in the file needs to change.
+   ===================================================================== */
+const FIELD_L = 120, FIELD_W = 53.3;     // yards (incl. two 10yd end zones)
+const TOTAL_FRAMES = 60;                  // 6.0s @ 10 Hz
+const LOS = 40, FIRST_DOWN = 47;          // line of scrimmage / line to gain
+const THROW_F = 28, CATCH_F = 40;         // event frames
+
+// helper to build offensive/defensive line clusters compactly
+function line(startX, ys, endX, num0, side){
+  return ys.map((y,i)=>({
+    num:num0+i, side,
+    wp:[[0,startX,y],[20,endX,y],[59,endX,y]]
+  }));
+}
+
+const PLAYERS = [
+  // ---- OFFENSE (11) ----
+  {num:4,  side:'OFF', role:'QB', wp:[[0,33,26.6],[14,30,26.6],[28,31,26.0],[40,31,26.0],[59,31,26.0]]},
+  {num:11, side:'OFF', role:'WR', target:true, wp:[[0,40,48],[20,58,48.5],[28,56,48.8],[40,55,49.2],[48,57,46],[59,62,42]]},
+  {num:80, side:'OFF', role:'WR', wp:[[0,40,6],[28,68,6],[40,82,6],[59,95,6]]},
+  {num:18, side:'OFF', role:'WR', wp:[[0,40,18],[12,44,18],[24,50,26],[40,56,31],[59,62,33]]},
+  {num:87, side:'OFF', role:'TE', wp:[[0,40,33],[14,42,40],[28,48,43],[40,54,44],[59,60,45]]},
+  {num:28, side:'OFF', role:'RB', wp:[[0,33,24],[14,38,18],[28,44,14],[40,50,13],[59,56,12]]},
+  ...line(40, [20.6,23.3,26.0,28.6,31.3], 38, 66, 'OFF'), // O-line 66-70
+
+  // ---- DEFENSE (11) ----
+  {num:24, side:'DEF', cover:11, wp:[[0,46,47],[20,57,47.5],[28,57,47.2],[40,52.5,49.0],[48,55,47],[59,60,43]]}, // CB on target
+  {num:21, side:'DEF', wp:[[0,46,6.5],[28,72,6.3],[40,85,6.2],[59,98,6.1]]},   // CB on go route
+  {num:27, side:'DEF', wp:[[0,46,18.5],[24,52,25],[40,58,30],[59,64,32]]},     // nickel
+  {num:55, side:'DEF', wp:[[0,48,30],[14,46,33],[28,45,36],[40,47,38],[59,50,40]]}, // LB hook
+  {num:52, side:'DEF', wp:[[0,48,22],[14,47,18],[28,46,16],[40,48,15],[59,52,14]]}, // LB flat
+  {num:31, side:'DEF', wp:[[0,58,20],[28,56,26],[40,54,30],[59,52,33]]},       // safety
+  {num:29, side:'DEF', wp:[[0,58,40],[28,57,44],[40,57,46],[59,57,47]]},       // safety
+  ...line(41, [22,25,28,31], 35, 90, 'DEF'), // D-line 90-93 rushing
+];
+
+// the ball: rides with QB, released at THROW_F, arrives at the catch point
+const BALL = {wp:[[0,33,26.6],[14,30.5,26.6],[28,31,26.0],[40,55,49.2],[48,57,46],[59,62,42]]};
+
+/* interpolate a [frame,x,y] waypoint list at fractional frame f */
+function posAt(wp, f){
+  if(f<=wp[0][0]) return {x:wp[0][1], y:wp[0][2]};
+  if(f>=wp[wp.length-1][0]) {const e=wp[wp.length-1]; return {x:e[1], y:e[2]};}
+  for(let i=0;i<wp.length-1;i++){
+    const a=wp[i], b=wp[i+1];
+    if(f>=a[0] && f<=b[0]){
+      const t=(f-a[0])/(b[0]-a[0]);
+      return {x:a[1]+(b[1]-a[1])*t, y:a[2]+(b[2]-a[2])*t};
+    }
+  }
+  const e=wp[wp.length-1]; return {x:e[1], y:e[2]};
+}
+
+/* =====================================================================
+   2. CANVAS SETUP — fixed internal resolution scaled by device pixel
+      ratio for crisp lines; CSS handles responsive display width.
+   ===================================================================== */
+const cv = document.getElementById('field');
+const ctx = cv.getContext('2d');
+const PAD = 26, PPY = 9.4;                       // pixels per yard
+const W = FIELD_L*PPY + PAD*2, H = FIELD_W*PPY + PAD*2;
+
+function setupCanvas(){
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  cv.width = W*dpr; cv.height = H*dpr;
+  cv.style.aspectRatio = `${W} / ${H}`;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+setupCanvas();
+window.addEventListener('resize', setupCanvas);
+
+// field yard -> pixel (y flipped so 0 is bottom sideline)
+const px = x => PAD + x*PPY;
+const py = y => PAD + (FIELD_W - y)*PPY;
+
+/* =====================================================================
+   3. FIELD RENDERER
+   ===================================================================== */
+function drawField(){
+  // turf
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,getCss('--field')); g.addColorStop(1,getCss('--field-2'));
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+  // alternating 10-yard mowing stripes
+  for(let x=10;x<110;x+=10){
+    if(((x/10)%2)===0){
+      ctx.fillStyle='rgba(255,255,255,0.018)';
+      ctx.fillRect(px(x),py(FIELD_W),10*PPY,FIELD_W*PPY);
+    }
+  }
+  // end zones
+  ctx.fillStyle='rgba(0,0,0,0.28)';
+  ctx.fillRect(px(0),py(FIELD_W),10*PPY,FIELD_W*PPY);
+  ctx.fillRect(px(110),py(FIELD_W),10*PPY,FIELD_W*PPY);
+
+  // yard lines every 5 yds
+  ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=1;
+  for(let x=10;x<=110;x+=5){
+    ctx.beginPath(); ctx.moveTo(px(x),py(FIELD_W)); ctx.lineTo(px(x),py(0)); ctx.stroke();
+  }
+  // sidelines
+  ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=2;
+  ctx.strokeRect(px(0),py(FIELD_W),FIELD_L*PPY,FIELD_W*PPY);
+
+  // hash marks
+  ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1;
+  for(let x=11;x<110;x++){
+    [18.5,FIELD_W-18.5].forEach(hy=>{
+      ctx.beginPath(); ctx.moveTo(px(x),py(hy)-3); ctx.lineTo(px(x),py(hy)+3); ctx.stroke();
+    });
+  }
+  // yard numbers
+  ctx.fillStyle='rgba(255,255,255,0.32)';
+  ctx.font='700 13px "Saira Condensed", sans-serif';
+  ctx.textAlign='center';
+  for(let x=20;x<=100;x+=10){
+    const n = x<=50 ? x-10 : 110-x;        // 10..50..10
+    ctx.fillText(n, px(x), py(FIELD_W-4)+5);
+    ctx.fillText(n, px(x), py(6)+5);
+  }
+
+  // line of scrimmage + line to gain
+  ctx.lineWidth=2.5;
+  ctx.strokeStyle=getCss('--los');
+  ctx.beginPath(); ctx.moveTo(px(LOS),py(FIELD_W)); ctx.lineTo(px(LOS),py(0)); ctx.stroke();
+  ctx.strokeStyle=getCss('--first');
+  ctx.beginPath(); ctx.moveTo(px(FIRST_DOWN),py(FIELD_W)); ctx.lineTo(px(FIRST_DOWN),py(0)); ctx.stroke();
+}
+
+/* =====================================================================
+   4. PLAYER RENDERER (with fading motion trails)
+   ===================================================================== */
+function drawTrail(wp, f, color){
+  ctx.lineWidth=2; ctx.lineCap='round';
+  const steps=12;
+  for(let i=1;i<=steps;i++){
+    const f0=Math.max(0,f-i), f1=Math.max(0,f-i+1);
+    const a=posAt(wp,f0), b=posAt(wp,f1);
+    ctx.globalAlpha=(1-i/steps)*0.5;
+    ctx.strokeStyle=color;
+    ctx.beginPath(); ctx.moveTo(px(a.x),py(a.y)); ctx.lineTo(px(b.x),py(b.y)); ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+}
+
+function drawDot(p, f){
+  const {x,y}=posAt(p.wp,f);
+  const isOff = p.side==='OFF';
+  const r = (p.role==='QB'||p.target) ? 9 : 8;
+  // trail for skill/coverage players only (keeps field readable)
+  if(p.role==='WR'||p.role==='RB'||p.role==='TE'||p.cover||p.target)
+    drawTrail(p.wp,f,isOff?'rgba(232,235,238,.6)':'rgba(193,69,59,.6)');
+
+  // highlight ring for target + nearest defender
+  if(p.target){ ctx.beginPath(); ctx.arc(px(x),py(y),r+5,0,7); ctx.strokeStyle=getCss('--accent'); ctx.lineWidth=2.5; ctx.stroke(); }
+  if(p._nearest){ ctx.beginPath(); ctx.arc(px(x),py(y),r+5,0,7); ctx.strokeStyle=getCss('--first'); ctx.lineWidth=2.5; ctx.stroke(); }
+
+  ctx.beginPath(); ctx.arc(px(x),py(y),r,0,7);
+  ctx.fillStyle = isOff ? getCss('--off') : getCss('--def');
+  ctx.fill();
+  ctx.lineWidth=1.5; ctx.strokeStyle='rgba(0,0,0,.45)'; ctx.stroke();
+
+  ctx.fillStyle = isOff ? '#11151a' : '#fff';
+  ctx.font='700 9px "Sometype Mono", monospace';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(p.num, px(x), py(y));
+  ctx.textBaseline='alphabetic';
+}
+
+function drawBall(f){
+  const {x,y}=posAt(BALL.wp,f);
+  // tiny "loft" cue while in flight
+  const flight = f>THROW_F && f<CATCH_F;
+  const lift = flight ? Math.sin((f-THROW_F)/(CATCH_F-THROW_F)*Math.PI)*6 : 0;
+  ctx.save();
+  ctx.translate(px(x),py(y)-lift);
+  ctx.fillStyle=getCss('--ball');
+  ctx.beginPath(); ctx.ellipse(0,0,6,3.6,0,0,7); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.6)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(-3,0); ctx.lineTo(3,0); ctx.stroke();
+  ctx.restore();
+}
+
+/* =====================================================================
+   5. ANALYTICS — compute separation between the target receiver and the
+      nearest defender at the current frame. This is the "insight."
+   ===================================================================== */
+const target = PLAYERS.find(p=>p.target);
+const defenders = PLAYERS.filter(p=>p.side==='DEF');
+function separationAt(f){
+  const t = posAt(target.wp,f);
+  let best=Infinity, who=null;
+  defenders.forEach(d=>{
+    const dp=posAt(d.wp,f);
+    const dist=Math.hypot(dp.x-t.x, dp.y-t.y);
+    if(dist<best){best=dist; who=d;}
+  });
+  defenders.forEach(d=>d._nearest=false);
+  if(who) who._nearest=true;
+  return best;
+}
+
+/* =====================================================================
+   6. RENDER + PLAYBACK LOOP
+   ===================================================================== */
+let frame=0, playing=false, rate=1, last=0;
+const insightEl=document.getElementById('insight');
+const insightVal=document.getElementById('insightValue');
+const insightNote=document.getElementById('insightNote');
+const scrub=document.getElementById('scrub');
+const clock=document.getElementById('clock');
+const playBtn=document.getElementById('playBtn');
+
+function render(){
+  drawField();
+  const sep = separationAt(frame);     // sets _nearest flag for ring
+  PLAYERS.forEach(p=>drawDot(p,frame));
+  drawBall(frame);
+
+  // insight card
+  if(frame < THROW_F){
+    insightEl.classList.remove('live');
+    insightVal.textContent='Pre-snap → drop';
+    insightNote.textContent='Tracking 22 players + ball at 10 Hz.';
+  } else if(frame < CATCH_F){
+    insightEl.classList.add('live');
+    insightVal.innerHTML='Ball in flight';
+    insightNote.textContent=`Target separation building: ${sep.toFixed(1)} yds`;
+  } else {
+    insightEl.classList.add('live');
+    insightVal.innerHTML=`${separationAt(CATCH_F).toFixed(1)}<small> yds</small>`;
+    insightNote.textContent='Receiver separation at the catch point (#11 vs nearest defender).';
+  }
+
+  scrub.value=frame;
+  clock.textContent=`${(frame/10).toFixed(1)}s · f${frame}`;
+}
+
+function tick(ts){
+  if(playing){
+    if(!last) last=ts;
+    const dt=ts-last;
+    if(dt > 100/rate){            // advance one 10Hz frame
+      frame++; last=ts;
+      if(frame>=TOTAL_FRAMES){ frame=TOTAL_FRAMES-1; setPlaying(false); }
+      render();
+    }
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+function setPlaying(v){
+  playing=v; last=0;
+  playBtn.textContent = v ? '⏸' : '▶';
+  if(v && frame>=TOTAL_FRAMES-1){ frame=0; }
+}
+
+/* ---- controls ---- */
+playBtn.onclick=()=>setPlaying(!playing);
+document.getElementById('restartBtn').onclick=()=>{frame=0;setPlaying(false);render();};
+scrub.oninput=e=>{frame=+e.target.value; setPlaying(false); render();};
+document.getElementById('speed').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-rate]'); if(!b)return;
+  rate=+b.dataset.rate;
+  document.querySelectorAll('#speed button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+});
+
+function getCss(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+
+// first paint (wait a tick for fonts)
+document.fonts.ready.then(render);
+setTimeout(render, 300);
+</script>
+</body>
+</html>
